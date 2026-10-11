@@ -1,0 +1,19 @@
+# Visual Studio / MSBuild
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Logs and Scratch
+app_debug.txt
+screen_test.png
+truth.txt
+*.log
+
+# Publish build outputs (distributed via GitHub Releases)
+publish/
+publish_uiaccess/
+*.zip
