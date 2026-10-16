@@ -127,6 +127,11 @@
                                 Content="Create Desktop Shortcuts"
                                 Style="{StaticResource ActionButtonStyle}"
                                 Click="BtnCreateShortcuts_Click"/>
+                        <Button x:Name="BtnRemoveShortcuts"
+                                Content="Remove from Desktop"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Margin="10,0,0,0"
+                                Click="BtnRemoveShortcuts_Click"/>
                         <TextBlock x:Name="TxtShortcutsStatus"
                                    VerticalAlignment="Center"
                                    Foreground="#4CC2FF"

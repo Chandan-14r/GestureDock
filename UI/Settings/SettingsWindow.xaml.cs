@@ -74,5 +74,11 @@ namespace GestureDock.UI.Settings
             StartupManager.CreateDesktopShortcuts();
             TxtShortcutsStatus.Text = "Shortcuts created on Desktop!";
         }
+
+        private void BtnRemoveShortcuts_Click(object sender, RoutedEventArgs e)
+        {
+            StartupManager.RemoveDesktopShortcuts();
+            TxtShortcutsStatus.Text = "Shortcuts removed from Desktop!";
+        }
     }
 }

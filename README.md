@@ -70,11 +70,7 @@ GestureDock will **never** terminate critical system processes:
      2. Create and trust a local self-signed Code Signing Certificate for UIAccess in your machine's root certificate store.
      3. Install the application files into `C:\Program Files\GestureDock`.
      4. Digitally sign `GestureDock.exe` with Authenticode UIAccess authorization.
-     5. Generate modern Fluent desktop shortcuts:
-        - `GestureDock` (Main tray launcher)
-        - `GestureDock Home` (Instant Desktop toggle)
-        - `GestureDock Clear All` (1-click immediate close all)
-        - `GestureDock Close All` (Interactive selector)
+     5. Keep your desktop completely clean without unwanted shortcut clutter (accessible via Task View gesture and system tray).
      6. Register a Windows Task Scheduler task (`GestureDock-AutoStart`) to launch silently on boot/logon with highest privileges.
 
 4. **Enjoy!**

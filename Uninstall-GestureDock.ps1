@@ -24,10 +24,20 @@ Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" 
 
 # 3. Remove Desktop shortcuts
 Write-Host "[3/4] Removing Desktop shortcuts..." -ForegroundColor Gray
-$desktop = [Environment]::GetFolderPath("Desktop")
-@("GestureDock Home.lnk", "GestureDock Close All.lnk", "GestureDock Clear All.lnk", "GestureDock.lnk") | ForEach-Object {
-    $sc = Join-Path $desktop $_
-    if (Test-Path $sc) { Remove-Item $sc -Force }
+$desktopPaths = @(
+    [Environment]::GetFolderPath("Desktop"),
+    [System.IO.Path]::Combine($env:USERPROFILE, "Desktop"),
+    [System.IO.Path]::Combine($env:USERPROFILE, "OneDrive", "Desktop"),
+    [Environment]::GetFolderPath("CommonDesktopDirectory")
+) | Select-Object -Unique
+
+foreach ($dp in $desktopPaths) {
+    if (Test-Path $dp) {
+        @("GestureDock Home.lnk", "GestureDock Close All.lnk", "GestureDock Clear All.lnk", "GestureDock.lnk") | ForEach-Object {
+            $sc = Join-Path $dp $_
+            if (Test-Path $sc) { Remove-Item $sc -Force -ErrorAction SilentlyContinue }
+        }
+    }
 }
 
 # 4. Remove installation files

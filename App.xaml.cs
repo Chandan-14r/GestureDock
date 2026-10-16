@@ -140,9 +140,9 @@ namespace GestureDock
                 };
                 Log("HotkeyManager initialized.");
 
-                // Create desktop shortcuts on initial run if not already created
-                StartupManager.CreateDesktopShortcuts();
-                Log("StartupManager shortcuts processed.");
+                // Ensure desktop shortcuts are never recreated automatically
+                StartupManager.RemoveDesktopShortcuts();
+                Log("Desktop shortcuts checked and cleaned.");
             }
             catch (Exception ex)
             {

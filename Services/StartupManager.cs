@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using Microsoft.Win32;
@@ -46,6 +47,66 @@ namespace GestureDock.Services
             catch (Exception ex)
             {
                 Debug.WriteLine($"Failed to set startup registry key: {ex.Message}");
+            }
+        }
+
+        public static void RemoveDesktopShortcuts()
+        {
+            try
+            {
+                var desktopDirs = new List<string>();
+
+                string standardDesktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                if (!string.IsNullOrEmpty(standardDesktop) && Directory.Exists(standardDesktop))
+                {
+                    desktopDirs.Add(standardDesktop);
+                }
+
+                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrEmpty(userProfile))
+                {
+                    string directDesktop = Path.Combine(userProfile, "Desktop");
+                    if (Directory.Exists(directDesktop) && !desktopDirs.Contains(directDesktop))
+                        desktopDirs.Add(directDesktop);
+
+                    string oneDriveDesktop = Path.Combine(userProfile, "OneDrive", "Desktop");
+                    if (Directory.Exists(oneDriveDesktop) && !desktopDirs.Contains(oneDriveDesktop))
+                        desktopDirs.Add(oneDriveDesktop);
+                }
+
+                string commonDesktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+                if (!string.IsNullOrEmpty(commonDesktop) && Directory.Exists(commonDesktop) && !desktopDirs.Contains(commonDesktop))
+                {
+                    desktopDirs.Add(commonDesktop);
+                }
+
+                string[] shortcutNames = new[]
+                {
+                    "GestureDock.lnk",
+                    "GestureDock Home.lnk",
+                    "GestureDock Close All.lnk",
+                    "GestureDock Clear All.lnk"
+                };
+
+                foreach (var dir in desktopDirs)
+                {
+                    foreach (var name in shortcutNames)
+                    {
+                        string fullPath = Path.Combine(dir, name);
+                        if (File.Exists(fullPath))
+                        {
+                            try
+                            {
+                                File.Delete(fullPath);
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error removing shortcuts: {ex.Message}");
             }
         }
 

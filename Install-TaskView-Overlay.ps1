@@ -57,38 +57,24 @@ Write-Host "[4/6] Signing GestureDock.exe with UIAccess certificate..." -Foregro
 Set-AuthenticodeSignature -Certificate $cert -FilePath "$targetDir\GestureDock.exe" | Out-Null
 Write-Host "       Authenticode signature applied." -ForegroundColor Green
 
-# 5. Update Shortcuts
-Write-Host "[5/6] Updating Desktop shortcuts with modern Fluent icons..." -ForegroundColor Gray
-$wsh = New-Object -ComObject WScript.Shell
-$desktop = [Environment]::GetFolderPath("Desktop")
-$iconsDir = "$targetDir\icons"
+# 5. Clean up any unwanted desktop shortcuts
+Write-Host "[5/6] Cleaning up desktop shortcuts..." -ForegroundColor Gray
+$desktopPaths = @(
+    [Environment]::GetFolderPath("Desktop"),
+    [System.IO.Path]::Combine($env:USERPROFILE, "Desktop"),
+    [System.IO.Path]::Combine($env:USERPROFILE, "OneDrive", "Desktop"),
+    [Environment]::GetFolderPath("CommonDesktopDirectory")
+) | Select-Object -Unique
 
-$scHome = $wsh.CreateShortcut("$desktop\GestureDock Home.lnk")
-$scHome.TargetPath = "$targetDir\GestureDock.exe"
-$scHome.Arguments = "--action home"
-$scHome.WorkingDirectory = $targetDir
-$scHome.IconLocation = "$iconsDir\Home.ico,0"
-$scHome.Save()
-
-$scClose = $wsh.CreateShortcut("$desktop\GestureDock Close All.lnk")
-$scClose.TargetPath = "$targetDir\GestureDock.exe"
-$scClose.Arguments = "--action closeall"
-$scClose.WorkingDirectory = $targetDir
-$scClose.IconLocation = "$iconsDir\CloseAll.ico,0"
-$scClose.Save()
-
-$scClear = $wsh.CreateShortcut("$desktop\GestureDock Clear All.lnk")
-$scClear.TargetPath = "$targetDir\GestureDock.exe"
-$scClear.Arguments = "--action clearall"
-$scClear.WorkingDirectory = $targetDir
-$scClear.IconLocation = "$iconsDir\ClearAll.ico,0"
-$scClear.Save()
-
-$scMain = $wsh.CreateShortcut("$desktop\GestureDock.lnk")
-$scMain.TargetPath = "$targetDir\GestureDock.exe"
-$scMain.WorkingDirectory = $targetDir
-$scMain.IconLocation = "$iconsDir\GestureDock.ico,0"
-$scMain.Save()
+foreach ($dp in $desktopPaths) {
+    if (Test-Path $dp) {
+        @("GestureDock Home.lnk", "GestureDock Close All.lnk", "GestureDock Clear All.lnk", "GestureDock.lnk") | ForEach-Object {
+            $sc = Join-Path $dp $_
+            if (Test-Path $sc) { Remove-Item $sc -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+Write-Host "       Desktop kept clean (no shortcut clutter)." -ForegroundColor Green
 
 # 6. Configure Windows Auto-Start on System Boot/Logon
 Write-Host "[6/6] Configuring automatic startup on Windows boot..." -ForegroundColor Gray
