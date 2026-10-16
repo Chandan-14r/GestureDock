@@ -15,12 +15,20 @@ Write-Host " GestureDock: Windows 11 Task View Overlay Setup" -ForegroundColor C
 Write-Host "=========================================================" -ForegroundColor Cyan
 
 # 1. Stop any currently running GestureDock instance
-Write-Host "[1/5] Stopping active background instances..." -ForegroundColor Gray
-Get-Process GestureDock -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 800
+Write-Host "[1/6] Stopping active background instances..." -ForegroundColor Gray
+try { & schtasks.exe /end /tn "GestureDock-AutoStart" 2>$null | Out-Null } catch {}
+& taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
+Get-Process GestureDock -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+# Actively wait for all GestureDock instances to fully exit
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+while ((Get-Process GestureDock -ErrorAction SilentlyContinue) -and ($stopwatch.Elapsed.TotalSeconds -lt 10)) {
+    Start-Sleep -Milliseconds 250
+}
+Start-Sleep -Milliseconds 600
 
 # 2. Create or load local self-signed Code Signing Certificate
-Write-Host "[2/5] Setting up local Code Signing Certificate for UIAccess..." -ForegroundColor Gray
+Write-Host "[2/6] Setting up local Code Signing Certificate for UIAccess..." -ForegroundColor Gray
 $certName = "GestureDock Local UIAccess"
 $cert = Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "*$certName*" } | Select-Object -First 1
 
@@ -50,7 +58,52 @@ if (-not (Test-Path $targetDir)) {
 }
 
 $sourceDir = if (Test-Path "$PSScriptRoot\publish_uiaccess") { "$PSScriptRoot\publish_uiaccess" } else { "$PSScriptRoot" }
-Copy-Item "$sourceDir\*" -Destination $targetDir -Recurse -Force
+
+# If GestureDock.exe is currently present, cleanly remove or rename it to bypass pending Windows file locks
+$targetExe = "$targetDir\GestureDock.exe"
+if (Test-Path $targetExe) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            Remove-Item $targetExe -Force -ErrorAction Stop
+            break
+        } catch {
+            try {
+                $tempOld = "$targetDir\GestureDock.exe.old"
+                if (Test-Path $tempOld) { Remove-Item $tempOld -Force -ErrorAction SilentlyContinue }
+                Rename-Item $targetExe "GestureDock.exe.old" -Force -ErrorAction Stop
+                break
+            } catch {
+                & taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
+                Start-Sleep -Milliseconds 600
+            }
+        }
+    }
+}
+
+# Copy files with retry loop in case Windows kernel holds transient locks
+$copied = $false
+$retryCount = 0
+$maxRetries = 6
+
+while (-not $copied -and ($retryCount -lt $maxRetries)) {
+    try {
+        Copy-Item "$sourceDir\*" -Destination $targetDir -Recurse -Force -ErrorAction Stop
+        $copied = $true
+    } catch {
+        $retryCount++
+        if ($retryCount -lt $maxRetries) {
+            Write-Host "       Waiting for Windows to release file handles (retry $retryCount/$maxRetries)..." -ForegroundColor Yellow
+            & taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
+            Start-Sleep -Seconds 1
+        } else {
+            throw $_
+        }
+    }
+}
+
+# Clean up any temporary .old file
+Remove-Item "$targetDir\*.old" -Force -ErrorAction SilentlyContinue
+Write-Host "       Application files installed successfully." -ForegroundColor Green
 
 # 4. Sign the executable with the trusted certificate
 Write-Host "[4/6] Signing GestureDock.exe with UIAccess certificate..." -ForegroundColor Gray
