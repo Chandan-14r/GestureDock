@@ -14,12 +14,14 @@ Write-Host "=========================================================" -Foregrou
 
 # 1. Stop background processes
 Write-Host "[1/4] Stopping running GestureDock processes..." -ForegroundColor Gray
+try { & schtasks.exe /end /tn "GestureDock-AutoStart" 2>$null | Out-Null } catch {}
+& taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
 Get-Process GestureDock -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 600
 
 # 2. Remove Task Scheduler & Registry Auto-start
 Write-Host "[2/4] Removing startup entries..." -ForegroundColor Gray
-& schtasks /delete /tn "GestureDock-AutoStart" /f | Out-Null
+& schtasks /delete /tn "GestureDock-AutoStart" /f 2>$null | Out-Null
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GestureDock" -ErrorAction SilentlyContinue
 
 # 3. Remove Desktop shortcuts
@@ -44,7 +46,17 @@ foreach ($dp in $desktopPaths) {
 Write-Host "[4/4] Removing program files..." -ForegroundColor Gray
 $targetDir = "$env:ProgramFiles\GestureDock"
 if (Test-Path $targetDir) {
-    Remove-Item -Path $targetDir -Recurse -Force
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ((Get-Process GestureDock -ErrorAction SilentlyContinue) -and ($sw.Elapsed.TotalSeconds -lt 5)) {
+        Start-Sleep -Milliseconds 200
+    }
+    try {
+        Remove-Item -Path $targetDir -Recurse -Force -ErrorAction Stop
+    } catch {
+        Get-ChildItem -Path $targetDir -Recurse | ForEach-Object {
+            try { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
 }
 
 Write-Host ""

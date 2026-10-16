@@ -10,6 +10,17 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Exit
 }
 
+function Test-FileExclusiveAccess([string]$path) {
+    if (-not (Test-Path $path)) { return $true }
+    try {
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $fs.Dispose()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host " GestureDock: Windows 11 Task View Overlay Setup" -ForegroundColor Cyan
 Write-Host "=========================================================" -ForegroundColor Cyan
@@ -20,12 +31,11 @@ try { & schtasks.exe /end /tn "GestureDock-AutoStart" 2>$null | Out-Null } catch
 & taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
 Get-Process GestureDock -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-# Actively wait for all GestureDock instances to fully exit
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-while ((Get-Process GestureDock -ErrorAction SilentlyContinue) -and ($stopwatch.Elapsed.TotalSeconds -lt 10)) {
-    Start-Sleep -Milliseconds 250
+while ((Get-Process GestureDock -ErrorAction SilentlyContinue) -and ($stopwatch.Elapsed.TotalSeconds -lt 5)) {
+    Start-Sleep -Milliseconds 200
 }
-Start-Sleep -Milliseconds 600
+Start-Sleep -Milliseconds 500
 
 # 2. Create or load local self-signed Code Signing Certificate
 Write-Host "[2/6] Setting up local Code Signing Certificate for UIAccess..." -ForegroundColor Gray
@@ -57,52 +67,64 @@ if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
 }
 
-$sourceDir = if (Test-Path "$PSScriptRoot\publish_uiaccess") { "$PSScriptRoot\publish_uiaccess" } else { "$PSScriptRoot" }
+$sourceDir = if (Test-Path "$PSScriptRoot\publish_uiaccess\GestureDock.exe") {
+    "$PSScriptRoot\publish_uiaccess"
+} elseif (Test-Path "$PSScriptRoot\GestureDock.exe") {
+    "$PSScriptRoot"
+} else {
+    throw "GestureDock.exe not found in $PSScriptRoot or publish_uiaccess!"
+}
 
-# If GestureDock.exe is currently present, cleanly remove or rename it to bypass pending Windows file locks
+# Wait for any lingering kernel/DWM locks on target GestureDock.exe
 $targetExe = "$targetDir\GestureDock.exe"
 if (Test-Path $targetExe) {
-    for ($i = 0; $i -lt 5; $i++) {
-        try {
-            Remove-Item $targetExe -Force -ErrorAction Stop
-            break
-        } catch {
-            try {
-                $tempOld = "$targetDir\GestureDock.exe.old"
-                if (Test-Path $tempOld) { Remove-Item $tempOld -Force -ErrorAction SilentlyContinue }
-                Rename-Item $targetExe "GestureDock.exe.old" -Force -ErrorAction Stop
-                break
-            } catch {
-                & taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
-                Start-Sleep -Milliseconds 600
-            }
-        }
+    $lockWait = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not (Test-FileExclusiveAccess $targetExe) -and ($lockWait.Elapsed.TotalSeconds -lt 8)) {
+        & taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
+        Start-Sleep -Milliseconds 400
+    }
+
+    # If it is STILL locked by Windows kernel teardown, rename it to .old
+    if (-not (Test-FileExclusiveAccess $targetExe)) {
+        $timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+        $oldFile = "$targetDir\GestureDock.exe.old_$timestamp"
+        Write-Host "       Moving locked binary aside to $(Split-Path $oldFile -Leaf)..." -ForegroundColor Yellow
+        Rename-Item -Path $targetExe -NewName (Split-Path $oldFile -Leaf) -Force -ErrorAction SilentlyContinue
+    } else {
+        try { Remove-Item $targetExe -Force -ErrorAction SilentlyContinue } catch {}
     }
 }
 
-# Copy files with retry loop in case Windows kernel holds transient locks
-$copied = $false
-$retryCount = 0
-$maxRetries = 6
+# Copy files individually with safety checks
+$sourceFiles = Get-ChildItem -Path $sourceDir -File
+foreach ($file in $sourceFiles) {
+    # Skip installer scripts from copying into target directory
+    if ($file.Name -match "^Install-TaskView-Overlay\.") { continue }
 
-while (-not $copied -and ($retryCount -lt $maxRetries)) {
-    try {
-        Copy-Item "$sourceDir\*" -Destination $targetDir -Recurse -Force -ErrorAction Stop
-        $copied = $true
-    } catch {
-        $retryCount++
-        if ($retryCount -lt $maxRetries) {
-            Write-Host "       Waiting for Windows to release file handles (retry $retryCount/$maxRetries)..." -ForegroundColor Yellow
-            & taskkill.exe /F /IM "GestureDock.exe" /T 2>$null | Out-Null
-            Start-Sleep -Seconds 1
+    $destPath = Join-Path $targetDir $file.Name
+    if (Test-Path $destPath) {
+        if (-not (Test-FileExclusiveAccess $destPath)) {
+            $timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+            $oldDest = "$destPath.old_$timestamp"
+            Rename-Item -Path $destPath -NewName (Split-Path $oldDest -Leaf) -Force -ErrorAction SilentlyContinue
         } else {
-            throw $_
+            try { Remove-Item $destPath -Force -ErrorAction SilentlyContinue } catch {}
         }
     }
+    Copy-Item $file.FullName -Destination $destPath -Force
 }
 
-# Clean up any temporary .old file
-Remove-Item "$targetDir\*.old" -Force -ErrorAction SilentlyContinue
+# Copy icons directory if present
+if (Test-Path "$sourceDir\icons") {
+    $targetIcons = Join-Path $targetDir "icons"
+    if (-not (Test-Path $targetIcons)) { New-Item -ItemType Directory -Force -Path $targetIcons | Out-Null }
+    Copy-Item "$sourceDir\icons\*" -Destination $targetIcons -Recurse -Force
+}
+
+# Clean up any old temporary files that are now unlocked
+Get-ChildItem -Path $targetDir -Filter "*.old*" | ForEach-Object {
+    try { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue } catch {}
+}
 Write-Host "       Application files installed successfully." -ForegroundColor Green
 
 # 4. Sign the executable with the trusted certificate
@@ -139,10 +161,12 @@ try {
 } catch { }
 
 try {
-    # HKCU Run entry as additional fallback
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GestureDock" -Value "`"$targetDir\GestureDock.exe`"" -Force
-    Write-Host "       HKCU Run registry entry created." -ForegroundColor Green
+    # Remove HKCU Run if present to avoid duplicate launches
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GestureDock" -ErrorAction SilentlyContinue
 } catch { }
+
+# Clean up any obsolete installer scripts in target directory to prevent confusion
+Remove-Item "$targetDir\Install-TaskView-Overlay.*" -Force -ErrorAction SilentlyContinue
 
 # Launch from Program Files with UIAccess
 Start-Process "$targetDir\GestureDock.exe"
