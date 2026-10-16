@@ -8,7 +8,7 @@ if %errorlevel% neq 0 (
     echo =========================================================
     echo  GestureDock: Requesting Administrator privileges...
     echo =========================================================
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd.exe -ArgumentList '/c `\"\"%~f0\"\"`' -Verb RunAs"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd.exe -ArgumentList '/k `\"\"%~f0\"\"`' -Verb RunAs"
     exit /b
 )
 
