@@ -60,7 +60,7 @@ namespace GestureDock.Services
             }
 
             IntPtr lastFg = IntPtr.Zero;
-            int desktopRecheckCounter = 0;
+            int zeroFgCounter = 0;
 
             while (_isRunning)
             {
@@ -68,36 +68,32 @@ namespace GestureDock.Services
                 {
                     IntPtr fg = NativeMethods.GetForegroundWindow();
 
-                    // Periodically (every ~3s) or immediately if foreground is null (e.g. after lock/unlock or sleep/resume),
-                    // re-verify attachment to the active interactive input desktop.
-                    if (fg == IntPtr.Zero || ++desktopRecheckCounter > 200)
+                    // If GetForegroundWindow returns zero repeatedly (screen locked, UAC prompt, or display sleep),
+                    // re-attach to the input desktop once it becomes available again.
+                    if (fg == IntPtr.Zero)
                     {
-                        desktopRecheckCounter = 0;
-                        try
+                        if (++zeroFgCounter > 20) // ~300ms of consecutive null foregrounds
                         {
-                            IntPtr newDesk = NativeMethods.OpenInputDesktop(0, false, 0x01FF);
-                            if (newDesk != IntPtr.Zero)
+                            zeroFgCounter = 0;
+                            try
                             {
-                                if (newDesk != hDesk)
+                                IntPtr newDesk = NativeMethods.OpenInputDesktop(0, false, 0x01FF);
+                                if (newDesk != IntPtr.Zero)
                                 {
                                     NativeMethods.SetThreadDesktop(newDesk);
-                                    if (hDesk != IntPtr.Zero)
+                                    if (hDesk != IntPtr.Zero && hDesk != newDesk)
                                     {
                                         NativeMethods.CloseDesktop(hDesk);
                                     }
                                     hDesk = newDesk;
                                 }
-                                else
-                                {
-                                    NativeMethods.CloseDesktop(newDesk);
-                                }
                             }
+                            catch { }
                         }
-                        catch { }
                     }
-
-                    if (fg != IntPtr.Zero)
+                    else
                     {
+                        zeroFgCounter = 0;
                         NativeMethods.GetWindowThreadProcessId(fg, out uint fgPid);
                         if (fgPid != (uint)Environment.ProcessId)
                         {
@@ -111,21 +107,8 @@ namespace GestureDock.Services
 
                     if (IsTaskViewActive)
                     {
-                        // While Task View is active, verify it hasn't closed silently or been cloaked by DWM
-                        bool tvVisible = _lastTaskViewHwnd != IntPtr.Zero &&
-                                         NativeMethods.IsWindow(_lastTaskViewHwnd) &&
-                                         NativeMethods.IsWindowVisible(_lastTaskViewHwnd);
-
-                        bool isCloaked = false;
-                        if (tvVisible && _lastTaskViewHwnd != IntPtr.Zero)
-                        {
-                            if (NativeMethods.DwmGetWindowAttribute(_lastTaskViewHwnd, NativeMethods.DWMWA_CLOAKED, out int cloakedVal, sizeof(int)) == 0)
-                            {
-                                isCloaked = cloakedVal != 0;
-                            }
-                        }
-
-                        if (!tvVisible || isCloaked)
+                        // Cleanly dismiss if Task View window handle ceased to exist
+                        if (_lastTaskViewHwnd != IntPtr.Zero && !NativeMethods.IsWindow(_lastTaskViewHwnd))
                         {
                             lastFg = IntPtr.Zero;
                             SetTaskViewState(false, IntPtr.Zero);
