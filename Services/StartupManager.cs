@@ -24,6 +24,36 @@ namespace GestureDock.Services
             }
         }
 
+        public static void EnsureStartupRegistered()
+        {
+            try
+            {
+                string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
+                if (string.IsNullOrEmpty(exePath)) return;
+
+                // 1. Registry Run Key (Runs on user login, battery, and AC power)
+                using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, true))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue(AppName, $"\"{exePath}\"");
+                    }
+                }
+
+                // 2. Windows Startup Folder (shell:startup)
+                string startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
+                if (!string.IsNullOrEmpty(startupFolder) && Directory.Exists(startupFolder))
+                {
+                    string shortcutPath = Path.Combine(startupFolder, "GestureDock.lnk");
+                    CreateShortcut(shortcutPath, exePath, "", "GestureDock Windows 11 Task View Companion Utility");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to ensure startup: {ex.Message}");
+            }
+        }
+
         public static void SetStartup(bool enable)
         {
             try

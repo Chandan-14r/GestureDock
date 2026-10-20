@@ -23,6 +23,10 @@ Start-Sleep -Milliseconds 600
 Write-Host "[2/4] Removing startup entries..." -ForegroundColor Gray
 & schtasks /delete /tn "GestureDock-AutoStart" /f 2>$null | Out-Null
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GestureDock" -ErrorAction SilentlyContinue
+$startupDir = [Environment]::GetFolderPath("Startup")
+if (Test-Path (Join-Path $startupDir "GestureDock.lnk")) {
+    Remove-Item (Join-Path $startupDir "GestureDock.lnk") -Force -ErrorAction SilentlyContinue
+}
 
 # 3. Remove Desktop shortcuts
 Write-Host "[3/4] Removing Desktop shortcuts..." -ForegroundColor Gray

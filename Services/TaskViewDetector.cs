@@ -60,12 +60,41 @@ namespace GestureDock.Services
             }
 
             IntPtr lastFg = IntPtr.Zero;
+            int desktopRecheckCounter = 0;
 
             while (_isRunning)
             {
                 try
                 {
                     IntPtr fg = NativeMethods.GetForegroundWindow();
+
+                    // Periodically (every ~3s) or immediately if foreground is null (e.g. after lock/unlock or sleep/resume),
+                    // re-verify attachment to the active interactive input desktop.
+                    if (fg == IntPtr.Zero || ++desktopRecheckCounter > 200)
+                    {
+                        desktopRecheckCounter = 0;
+                        try
+                        {
+                            IntPtr newDesk = NativeMethods.OpenInputDesktop(0, false, 0x01FF);
+                            if (newDesk != IntPtr.Zero)
+                            {
+                                if (newDesk != hDesk)
+                                {
+                                    NativeMethods.SetThreadDesktop(newDesk);
+                                    if (hDesk != IntPtr.Zero)
+                                    {
+                                        NativeMethods.CloseDesktop(hDesk);
+                                    }
+                                    hDesk = newDesk;
+                                }
+                                else
+                                {
+                                    NativeMethods.CloseDesktop(newDesk);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
 
                     if (fg != IntPtr.Zero)
                     {

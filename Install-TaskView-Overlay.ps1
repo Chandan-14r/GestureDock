@@ -158,16 +158,87 @@ try {
     }
     Write-Host "       Desktop kept clean (no shortcut clutter)." -ForegroundColor Green
 
-    # 6. Configure Windows Auto-Start on System Boot/Logon
+    # 6. Configure Windows Auto-Start on System Boot/Logon (Triple-Redundant: Registry + Startup Folder + Task Scheduler)
     Write-Host "[6/6] Configuring automatic startup on Windows boot..." -ForegroundColor Gray
-    $taskName = "GestureDock-AutoStart"
+
+    # 6.1 Register in Registry Run (primary auto-start: works on battery, AC, and every reboot)
     try {
-        cmd.exe /c "schtasks /create /tn ""$taskName"" /tr ""\""$targetDir\GestureDock.exe\"""" /sc onlogon /rl highest /f >nul 2>&1"
-        Write-Host "       Windows Task Scheduler registered (runs automatically on boot/login)." -ForegroundColor Green
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GestureDock" -Value "`"$targetDir\GestureDock.exe`"" -Force
+        Write-Host "       HKCU Run registry entry registered." -ForegroundColor Green
     } catch { }
 
+    # 6.2 Register in Windows Startup folder (shell:startup)
     try {
-        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "GestureDock" -ErrorAction SilentlyContinue
+        $startupDir = [Environment]::GetFolderPath("Startup")
+        if (Test-Path $startupDir) {
+            $wsh = New-Object -ComObject WScript.Shell
+            $sc = $wsh.CreateShortcut((Join-Path $startupDir "GestureDock.lnk"))
+            $sc.TargetPath = "$targetDir\GestureDock.exe"
+            $sc.WorkingDirectory = $targetDir
+            $sc.Description = "GestureDock - Windows 11 Task View Companion"
+            $sc.Save()
+            Write-Host "       Windows Startup folder shortcut registered." -ForegroundColor Green
+        }
+    } catch { }
+
+    # 6.3 Register in Task Scheduler with NO battery restrictions and NO elevation mismatch
+    $taskName = "GestureDock-AutoStart"
+    try {
+        $userSid = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+        $taskXml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>GestureDock</Author>
+    <Description>GestureDock Windows 11 Task View Companion Utility</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>$userSid</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>4</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>$targetDir\GestureDock.exe</Command>
+    </Exec>
+  </Actions>
+</Task>
+"@
+        $xmlPath = "$env:TEMP\GestureDock-Task.xml"
+        [System.IO.File]::WriteAllText($xmlPath, $taskXml, [System.Text.Encoding]::Unicode)
+        cmd.exe /c "schtasks.exe /create /tn ""$taskName"" /xml ""$xmlPath"" /f >nul 2>&1"
+        Remove-Item $xmlPath -Force -ErrorAction SilentlyContinue
+        Write-Host "       Task Scheduler registered (runs on battery & AC, restarts on failure)." -ForegroundColor Green
     } catch { }
 
     # Clean up any obsolete installer scripts in target directory to prevent confusion

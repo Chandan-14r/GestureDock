@@ -24,11 +24,27 @@ namespace GestureDock
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            // CRITICAL: Prevent transient rendering or thread exceptions from killing the background process
+            DispatcherUnhandledException += (s, args) =>
+            {
+                Log($"[RECOVERED DispatcherUnhandledException] {args.Exception}");
+                args.Handled = true; // Prevent application shutdown
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += (s, args) =>
+            {
+                Log($"[CRITICAL AppDomainUnhandledException] {args.ExceptionObject}");
+            };
+
             Log("OnStartup entered.");
             try
             {
                 _settingsManager = new SettingsManager();
                 Log("SettingsManager loaded.");
+
+                // Self-heal and ensure auto-start survives restarts and sleep transitions
+                StartupManager.EnsureStartupRegistered();
+                Log("Startup registration verified.");
 
                 // Check command-line arguments for shortcut actions
                 if (e.Args.Length > 0)
@@ -80,6 +96,33 @@ namespace GestureDock
                 _overlayManager = new OverlayManager(_settingsManager);
                 _overlayManager.Initialize();
                 Log("OverlayManager initialized.");
+
+                // Listen for power mode changes (sleep/wake/battery) and session changes (lock/unlock)
+                try
+                {
+                    Microsoft.Win32.SystemEvents.SessionSwitch += (s, args) =>
+                    {
+                        Log($"[SystemEvents.SessionSwitch] Reason={args.Reason}");
+                        if (args.Reason == Microsoft.Win32.SessionSwitchReason.SessionUnlock ||
+                            args.Reason == Microsoft.Win32.SessionSwitchReason.SessionLogon)
+                        {
+                            _overlayManager.HideManually();
+                        }
+                    };
+
+                    Microsoft.Win32.SystemEvents.PowerModeChanged += (s, args) =>
+                    {
+                        Log($"[SystemEvents.PowerModeChanged] Mode={args.Mode}");
+                        if (args.Mode == Microsoft.Win32.PowerModes.Resume)
+                        {
+                            _overlayManager.HideManually();
+                        }
+                    };
+                }
+                catch (Exception ex)
+                {
+                    Log($"Failed to register SystemEvents: {ex.Message}");
+                }
 
                 _overlayManager.HomeTriggered += () =>
                 {

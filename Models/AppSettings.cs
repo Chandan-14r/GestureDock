@@ -16,7 +16,7 @@ namespace GestureDock.Models
 
     public class AppSettings
     {
-        public bool StartWithWindows { get; set; } = false;
+        public bool StartWithWindows { get; set; } = true;
         public bool EnableOverlay { get; set; } = true;
         public bool EnableAnimations { get; set; } = true;
         public DockPosition Position { get; set; } = DockPosition.BottomRight;
